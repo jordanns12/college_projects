@@ -1,5 +1,6 @@
 # p12
-<b>This project demonstrates: <b>
+THIS PROJECT DEMONSTRATES:
+
 
 Read and write files
 
