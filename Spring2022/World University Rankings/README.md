@@ -1,6 +1,9 @@
 # p12
-This project demonstrates:
+THIS PROJECT DEMONSTRATES:
+
 
 Read and write files
+
 Create and use Pandas DataFrames
+
 Use BeautifulSoup to parse web pages
