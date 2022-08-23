@@ -1,0 +1,109 @@
+---
+title: "The Effects of Three-point Shots on Win Percentage for NBA Basketball"
+output: html_document
+author: 'Lin Ha, Adam Kamholz, Bryce Sheedy, Jordan Stump, Seddie Wibbels'
+date: '2022-08-11'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr, tidyverse)
+library(lubridate)
+library(scales)
+library(tidyr)
+library(stringr)
+library(dbplyr)
+library(lubridate)
+source("../scripts/ggprob.R")
+
+```
+
+It is expected that the data and rmd file are all in the same project folder which is in within the class folder. It also expected that a scripts folder within the class folder contains ggprob.R.
+
+## Introduction
+
+He shoots, he scores! Although that phrase might be from hockey, everyone loves to see their favorite NBA player make a nice shot, especially a 3-pointer. We will investigate if 3-pointer frequency affects the outcome of the game. Many aspects of the NBA change over the years: the players, the technology, the viewers, but how does the game itself change? That is what we are going to find out. While the use of the three point shot has a positive correlation with that team's win percentage, that correlation is not very strong.
+	
+## Background
+
+The dataset^[https://www.kaggle.com/datasets/nathanlauga/nba-games] contains game and team statistics from all NBA games since 2003, however our clean data only contains seasons that were a full 82 games (2003 - 2010, 2012 - 2018). The data includes team name, season year, and specific details summed over the whole season. These details include: all field goals attempted, field goes made, 3-pointers attempted, 3-pointers made, percentage of field goals made, percentage of 3-pointers made, number of games won in the season, number of games lost, and percentage of games won. 
+
+The original data was sourced from Kaggle from user Nathan Lauga who created it using official NBA data. It was further cleaned up by our group member to provide an overview of each team’s season. 
+
+For anyone needing a refresher on basketball, a field goal is when a player makes a shot other than a free throw. These can be either two or three points, depending on the distance from the basket, and include layups, jump shots, dunks, etc. A 3-pointer is a specific field goal which is shot from or behind the three-point line. The data has been filtered to only include seasons where the team has played all 82 games in order to accurately compare the different seasons. 
+
+A factor that might affect the interpretation of the results would be a player being out for multiple games or a season. Depending on the player’s position, this might affect the number of 3-pointers made, but since we are analyzing data from a range of years this should not have a significant impact on the analysis. 
+
+The rest of the report will include a regression model to analyze the relationship between 3-pointers and the outcome of the game. The report will include a graph of 3-pointer percentage vs. win percentage (each season) to help visualize the relationship between the two. We also have a hypothesis test analyzing the slope of the regression model we created. This will be accompanied by analysis and interpretation of the data and results. 
+
+```{r, include = FALSE}
+# Data wrangling section
+
+game_details = read_csv("games_details.csv")
+
+games = read_csv("games.csv")
+
+teams = read_csv("teams.csv")
+
+games = games %>% distinct(GAME_ID, .keep_all = TRUE) %>% filter((ymd("2003/10/28") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2004/4/14")) | (ymd("2004/11/02") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2005/4/20")) | (ymd("2005/11/01") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2006/4/19")) | (ymd("2006/10/31") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2007/4/18")) | (ymd("2007/10/30") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2008/4/16")) | (ymd("2008/10/28") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2009/4/16")) | (ymd("2009/10/27") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2010/4/14")) | (ymd("2010/10/26") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2011/4/13")) | (ymd("2011/12/25") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2012/4/26")) | (ymd("2012/10/30") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2013/4/17")) | (ymd("2013/10/29") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2014/4/16")) | (ymd("2014/10/28") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2015/4/15")) | (ymd("2015/10/27") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2016/4/13")) | (ymd("2016/10/25") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2017/4/12")) | (ymd("2017/10/17") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2018/4/11")) | (ymd("2018/10/16") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2019/4/10")) | (ymd("2019/10/22") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2020/8/16")) | (ymd("2020/12/22") <= ymd(GAME_DATE_EST) & ymd(GAME_DATE_EST) <= ymd("2021/5/16"))) 
+
+losses = games %>% mutate(winner = if_else(HOME_TEAM_WINS == 1, HOME_TEAM_ID, VISITOR_TEAM_ID), TEAM_ID = if_else(HOME_TEAM_WINS == 0, HOME_TEAM_ID, VISITOR_TEAM_ID )) %>% group_by(TEAM_ID, SEASON) %>% summarise(loss_n = n(), type = "loss")
+
+wins = games %>% mutate(winner = if_else(HOME_TEAM_WINS == 1, HOME_TEAM_ID, VISITOR_TEAM_ID), TEAM_ID = if_else(HOME_TEAM_WINS == 0,  VISITOR_TEAM_ID, HOME_TEAM_ID )) %>% group_by(TEAM_ID, SEASON) %>% summarise(wins_n = n(), type = "win")
+
+win_percentages = losses %>% full_join(wins, by = c("TEAM_ID" = "TEAM_ID", "SEASON" = "SEASON")) %>% mutate(win_percent = 100*(wins_n / (wins_n + loss_n))) %>% select(SEASON, TEAM_ID, wins_n, loss_n, win_percent)
+
+nba_df = game_details %>% full_join(games, by = "GAME_ID") %>% full_join(teams, by = "TEAM_ID")  %>% drop_na(MIN) %>% select(TEAM_ID, NICKNAME.y, GAME_ID, SEASON, FGA, FGM, FG3A, FG3M, GAME_DATE_EST) %>% drop_na(SEASON)
+
+
+nba_cleaned_df = nba_df %>% group_by(TEAM_ID, NICKNAME.y, SEASON) %>% summarise(fga = sum(FGA), fgm = sum(FGM), fg3a = sum(FG3A), fg3m = sum(FG3M)) %>% mutate(fg_percent = 100*(fgm/fga), fg3_percent = 100*(fg3m/fg3a)) %>% full_join(win_percentages, by = c("TEAM_ID" = "TEAM_ID", "SEASON" = "SEASON")) %>% rename(team_id = TEAM_ID, nickname = NICKNAME.y ,season = SEASON) %>% mutate(num_games = wins_n + loss_n) %>% filter(num_games == 82)
+
+write.csv(nba_cleaned_df, "nba_data_82g.csv", row.names = FALSE)
+```
+
+## Regression Model
+
+The first regression model interpret the relationship between using 3-pointers and the win percentage.
+```{r, echo = FALSE}
+lm_three_pointers_win = lm(win_percent ~ fg3a, data = nba_cleaned_df) # regression model object
+
+nba_cleaned_df %>% 
+    ggplot(mapping = aes(x = fg3a, y = win_percent)) + 
+    geom_point() + 
+    geom_abline(mapping = aes(slope = coef(lm_three_pointers_win)[2], intercept = coef(lm_three_pointers_win)[1]), color = "blue") +
+    labs(x = 'Three-Pointers Attempted (in one season)',
+         y = 'Win Percentage',
+         title = "The Relationship Between Three-Pointers Attempted and Win Percentage",
+         subtitle = 'Blue line represents a regression model')
+
+cor(nba_cleaned_df$fg3a, nba_cleaned_df$win_percent) # r value
+```
+
+Based on the data of these 15 years, we can see that the win percentage increases with the increasing of 3-pointers usage. The correlation between these two aspects is near 0.171.
+
+As we can see from the graph and the r-value, there is a very weak positive correlation between 3-pointers attempted and win percentage. 
+
+## Hypothesis Test
+
+The hypotheses are: 
+$H_0: \theta = 0$ and
+$H_a: \theta \neq 0$, where $\theta$ is the slope parameter of our regression model. 
+The test statistic we will be using is: $T = \frac{\hat{\theta} - 0}{s_{\hat{\theta}}}$. The sampling distribution is a t distribution with 445 degrees of freedom. 
+
+``` {r Hypothesis Test, echo = FALSE}
+library(modelr)
+summary(lm_three_pointers_win)
+nba_cleaned_df %>% add_residuals(lm_three_pointers_win) %>% ggplot(aes(x = fg3a, y = resid)) + geom_point()
+```
+
+## Discussion
+
+Running summary() on our regression model object gives a p-value of .000292. Because the p-value is less than .05 and even .01, there is sufficient evidence to reject the null hypothesis that the slope is 0. Overall, while there was a positive correlation between three pointers attempted and win percentage, it wasn't very strong. 
+
+Some potential shortcomings include the exclusion of certain seasons from teams that did not play all 82 games that season . Another potential shortcoming could be the usage of 3-pointer attempts in the regression. If we had used the percentage of 3-pointers made, we might have gotten a better sense of how the team's 3-point efficiency impacts their success rather than just the attempts. 
+
+We saw that the use of the three pointer did not affect the win percentage of a team, however further questions could be created of how the three pointer’s popularity affects different aspects of the game. Is the game becoming faster? Is offense more used than defense? It is worth looking at the evolution of the game of basketball as a whole.
+
+## References
+
+Source in footnote below
